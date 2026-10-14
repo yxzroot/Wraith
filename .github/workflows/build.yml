@@ -1,0 +1,37 @@
+name: Build Wraith
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: Linux
+          - os: windows-latest
+            name: Windows
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y fakeroot dpkg-dev
+      - if: runner.os == 'Windows'
+        run: choco install wixtoolset --no-progress -y
+      - if: runner.os == 'Linux'
+        run: ./gradlew test packageLinux
+      - if: runner.os == 'Windows'
+        run: .\gradlew.bat test packageWindows
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wraith-${{ matrix.name }}
+          path: build/jpackage/**
+          if-no-files-found: error

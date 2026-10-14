@@ -1,0 +1,64 @@
+plugins {
+    id 'application'
+    id 'org.openjfx.javafxplugin' version '0.1.0'
+}
+
+group = 'local.wraith'
+version = providers.gradleProperty('appVersion').get()
+
+repositories { mavenCentral() }
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 17
+    options.encoding = 'UTF-8'
+}
+
+javafx {
+    version = providers.gradleProperty('javafxVersion').get()
+    modules = ['javafx.controls', 'javafx.graphics']
+}
+
+dependencies {
+    implementation 'com.google.code.gson:gson:2.10.1'
+    testImplementation platform('org.junit:junit-bom:5.10.2')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+}
+
+application { mainClass = 'wraith.WraithApp' }
+tasks.named('test') { useJUnitPlatform() }
+tasks.withType(Test).configureEach { jvmArgs '--add-modules', 'jdk.httpserver' }
+tasks.named('compileTestJava') { options.compilerArgs += ['--add-modules', 'jdk.httpserver'] }
+tasks.named('processResources') {
+    filesMatching('build-info.properties') { expand(project.properties) }
+}
+
+def appTitle = providers.gradleProperty('appName').get()
+def appVendor = providers.gradleProperty('appVendor').get()
+def appVersion = providers.gradleProperty('appVersion').get()
+def installLib = layout.buildDirectory.dir("install/${project.name}/lib")
+def jpackageExecutable = "${System.getProperty('java.home')}/bin/jpackage" + (System.getProperty('os.name').toLowerCase().contains('win') ? '.exe' : '')
+def jpackageModulePath = "${System.getProperty('java.home')}/jmods${File.pathSeparator}${installLib.get().asFile.absolutePath}"
+def jpackageArguments = { String type, File destination, File icon ->
+    [jpackageExecutable, '--type', type, '--dest', destination.absolutePath, '--name', appTitle, '--app-version', appVersion,
+     '--vendor', appVendor, '--input', installLib.get().asFile.absolutePath, '--main-jar', "${project.name}-${project.version}.jar",
+     '--main-class', application.mainClass.get(), '--icon', icon.absolutePath, '--module-path', jpackageModulePath,
+     '--add-modules', 'javafx.controls,javafx.graphics,java.net.http,jdk.crypto.ec', '--java-options', '--add-modules=javafx.controls,javafx.graphics,java.net.http,jdk.crypto.ec']
+}
+
+tasks.register('packageAppImage') {
+    group = 'distribution'; description = 'Creates a self-contained Wraith image for the current OS.'; dependsOn tasks.named('installDist')
+    doLast { File out = layout.buildDirectory.dir('jpackage/app-image').get().asFile; delete(out); exec { commandLine(jpackageArguments('app-image', out, file('src/main/resources/icons/wraith.png'))) } }
+}
+tasks.register('packageLinux') {
+    group = 'distribution'; description = 'Creates a Linux .deb and portable .tar.gz (requires fakeroot and dpkg-dev).'; onlyIf { System.getProperty('os.name').toLowerCase().contains('linux') }; dependsOn tasks.named('packageAppImage')
+    doLast { File out = layout.buildDirectory.dir('jpackage/linux').get().asFile; out.mkdirs(); exec { commandLine('tar', '-C', layout.buildDirectory.dir('jpackage/app-image').get().asFile.absolutePath, '-czf', new File(out, 'wraith-app-image.tar.gz').absolutePath, '.') }; exec { commandLine(jpackageArguments('deb', out, file('src/main/resources/icons/wraith.png')) + ['--linux-shortcut']) }; copy { from 'src/main/resources/packaging/wraith.desktop'; into out } }
+}
+tasks.register('packageWindows') {
+    group = 'distribution'; description = 'Creates a Windows .exe installer and portable app image (requires WiX).'; onlyIf { System.getProperty('os.name').toLowerCase().contains('win') }; dependsOn tasks.named('packageAppImage')
+    doLast { File out = layout.buildDirectory.dir('jpackage/windows').get().asFile; out.mkdirs(); exec { commandLine(jpackageArguments('exe', out, file('src/main/resources/icons/wraith.ico')) + ['--win-menu', '--win-shortcut']) } }
+}

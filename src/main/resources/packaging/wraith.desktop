@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Wraith
+Comment=Local-first GitHub program library
+Exec=wraith
+Icon=wraith
+Terminal=false
+Categories=Development;Utility;
